@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cup Guess Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="startScreen">
+  <h2>Enter Your Name</h2>
+  <input type="text" id="username" placeholder="Your name">
+  <button onclick="startGame()">Start Game</button>
+</div>
+
+<div id="gameScreen" class="hidden">
+  <h3 id="question">Watch carefully...</h3>
+
+  <div class="cups">
+    <div class="cup" onclick="guess(0)">1</div>
+    <div class="cup" onclick="guess(1)">2</div>
+    <div class="cup" onclick="guess(2)">3</div>
+  </div>
+
+  <p id="result"></p>
+  <button onclick="restart()">Play Again</button>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
