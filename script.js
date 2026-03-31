@@ -1,96 +1,188 @@
-let username = "";
-let correctIndex = 0;
-let cupElements = [];
+/* ── State ─────────────────────────────────────────────────── */
+let username   = "";
+let correctIndex = 0;    // index in cupWraps[] that hides the ball
+let cupWraps   = [];     // array of .cup-wrap elements (in DOM order)
+let selectedSpeed = 1000; // ms between swaps (set by difficulty pill)
+let shuffling  = false;
+let guessAllowed = false;
 
+/* ── Helpers ───────────────────────────────────────────────── */
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.add('hidden');
+    s.classList.remove('active');
+  });
+  const el = document.getElementById(id);
+  el.classList.remove('hidden');
+  el.classList.add('active');
+}
+
+/* ── Start / Menu ──────────────────────────────────────────── */
 function startGame() {
-  username = document.getElementById("username").value;
+  username = document.getElementById("username").value.trim();
+  if (!username) { alert("Please enter your name!"); return; }
 
-  if (!username) {
-    alert("Enter your name");
-    return;
-  }
-
-  document.getElementById("startScreen").classList.add("hidden");
-  document.getElementById("menuScreen").classList.remove("hidden");
-
+  document.getElementById("welcomeTag").textContent = "👋 " + username;
+  showScreen("menuScreen");
   sendToGoogleForm(username);
 }
 
 function openCupGame() {
-  document.getElementById("menuScreen").classList.add("hidden");
-  document.getElementById("gameScreen").classList.remove("hidden");
+  showScreen("gameScreen");
+  resetResult();
+  // auto-setup a fresh game on open
+  setupGame();
 }
 
 function backToMenu() {
-  document.getElementById("gameScreen").classList.add("hidden");
-  document.getElementById("menuScreen").classList.remove("hidden");
+  shuffling = false;
+  showScreen("menuScreen");
 }
 
-function setupGame() {
-  const count = parseInt(document.getElementById("cupCount").value);
-  const container = document.getElementById("cupsContainer");
+/* ── Difficulty ────────────────────────────────────────────── */
+function setDiff(btn) {
+  document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  selectedSpeed = parseInt(btn.dataset.speed);
+}
 
+/* ── Game Setup ────────────────────────────────────────────── */
+function setupGame() {
+  if (shuffling) return;
+
+  resetResult();
+
+  const count     = parseInt(document.getElementById("cupCount").value);
+  const container = document.getElementById("cupsContainer");
   container.innerHTML = "";
-  cupElements = [];
+  cupWraps = [];
 
   correctIndex = Math.floor(Math.random() * count);
 
   for (let i = 0; i < count; i++) {
-    let cup = document.createElement("div");
-    cup.className = "cup";
-    cup.onclick = () => guess(i);
+    const wrap = document.createElement("div");
+    wrap.className = "cup-wrap";
+    wrap.dataset.index = i;
+    wrap.onclick = () => guess(i);
 
+    // Cup SVG (a proper cup / goblet shape)
+    wrap.innerHTML = `
+      <svg class="cup-svg" viewBox="0 0 100 110" xmlns="http://www.w3.org/2000/svg">
+        <!-- rim -->
+        <rect x="8" y="10" width="84" height="10" rx="5"
+              fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
+        <!-- body -->
+        <path d="M 16 20 L 26 95 L 74 95 L 84 20 Z"
+              fill="#e74c3c" stroke="#922b21" stroke-width="1.5"/>
+        <!-- base stem -->
+        <rect x="36" y="95" width="28" height="8" rx="3"
+              fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
+        <!-- foot -->
+        <rect x="26" y="103" width="48" height="7" rx="4"
+              fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
+        <!-- shine -->
+        <path d="M 22 25 Q 28 55 24 85" stroke="rgba(255,255,255,0.18)"
+              stroke-width="4" fill="none" stroke-linecap="round"/>
+      </svg>`;
+
+    // Ball (only under the correct cup)
     if (i === correctIndex) {
-      let ball = document.createElement("div");
+      const ball = document.createElement("div");
       ball.className = "ball";
-      cup.appendChild(ball);
+      ball.id = "theBall";
+      wrap.appendChild(ball);
     }
 
-    container.appendChild(cup);
-    cupElements.push(cup);
+    container.appendChild(wrap);
+    cupWraps.push(wrap);
   }
 
-  shuffleAnimation();
+  guessAllowed = false;
+
+  // Show ball briefly then shuffle
+  setTimeout(() => {
+    hideBall();
+    shuffleAnimation();
+  }, 800);
 }
 
+/* ── Ball visibility ───────────────────────────────────────── */
+function hideBall() {
+  const b = document.getElementById("theBall");
+  if (b) b.classList.add("hidden-ball");
+}
+function showBall() {
+  const b = document.getElementById("theBall");
+  if (b) b.classList.remove("hidden-ball");
+}
+
+/* ── Shuffle ───────────────────────────────────────────────── */
 function shuffleAnimation() {
-  const speed = parseInt(document.getElementById("speed").value);
+  shuffling   = true;
+  guessAllowed = false;
 
-  let moves = 10;
+  const totalMoves = 14;
+  let   moves      = 0;
 
-  let interval = setInterval(() => {
-    let i = Math.floor(Math.random() * cupElements.length);
-    let j = Math.floor(Math.random() * cupElements.length);
+  // We track a logical mapping: logicalPos[i] = which cupWrap index is at position i
+  // Simpler: swap the actual DOM elements' flex order
+  // Initialize order values
+  cupWraps.forEach((w, i) => { w.style.order = i; w.style.transition = `order 0s`; });
 
-    // swap positions visually
-    let temp = cupElements[i].style.order;
-    cupElements[i].style.order = cupElements[j].style.order;
-    cupElements[j].style.order = temp;
+  const interval = setInterval(() => {
+    // Pick two distinct random cup indices
+    let a, b;
+    do { a = Math.floor(Math.random() * cupWraps.length);
+         b = Math.floor(Math.random() * cupWraps.length); } while (a === b);
 
-    moves--;
+    // Swap their flex order
+    const oa = parseInt(cupWraps[a].style.order);
+    const ob = parseInt(cupWraps[b].style.order);
+    cupWraps[a].style.order = ob;
+    cupWraps[b].style.order = oa;
 
-    if (moves <= 0) {
+    // Track correctIndex: if we swapped a or b, update correctIndex
+    if (correctIndex === a) correctIndex = b;
+    else if (correctIndex === b) correctIndex = a;
+
+    moves++;
+    if (moves >= totalMoves) {
       clearInterval(interval);
+      shuffling    = false;
+      guessAllowed = true;
     }
-
-  }, speed);
+  }, selectedSpeed);
 }
 
+/* ── Guess ─────────────────────────────────────────────────── */
 function guess(index) {
+  if (!guessAllowed) return;
+  guessAllowed = false;
+
+  showBall();
+
+  const result = document.getElementById("result");
+
   if (index === correctIndex) {
-    document.getElementById("result").innerText = "🎉 Correct!";
+    result.textContent = "🎉 Correct! You found it!";
+    result.className   = "result-msg win";
   } else {
-    document.getElementById("result").innerText = "💀 Wrong!";
+    result.textContent = "💀 Wrong! Better luck next time.";
+    result.className   = "result-msg loss";
   }
 }
 
+function resetResult() {
+  const r = document.getElementById("result");
+  if (r) { r.textContent = ""; r.className = "result-msg"; }
+}
+
+/* ── Google Form ───────────────────────────────────────────── */
 function sendToGoogleForm(name) {
   fetch("https://docs.google.com/forms/d/e/1FAIpQLSeDmuyrMLvlbYN_hFrcTvwISmRWOsi9oH0PdIiRq-H6YGKh7A/formResponse", {
     method: "POST",
-    mode: "no-cors",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: `entry.1512615533=${encodeURIComponent(name)}`
+    mode:   "no-cors",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body:    `entry.1512615533=${encodeURIComponent(name)}`
   });
 }
