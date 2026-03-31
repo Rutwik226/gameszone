@@ -4,56 +4,94 @@
   <meta charset="UTF-8">
   <title>Game Hub</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <!-- START SCREEN -->
-<div id="startScreen">
-  <h2>Enter Your Game Name</h2>
-  <input type="text" id="username" placeholder="Your name">
-  <button onclick="startGame()">Start</button>
-</div>
-
-<!-- GAME LIST -->
-<div id="menuScreen" class="hidden">
-  <h2>Select Game</h2>
-
-  <div class="grid">
-    <div class="card" onclick="openCupGame()">
-      <img src="https://cdn-icons-png.flaticon.com/512/1046/1046784.png">
-      <p>Cup Game</p>
+<div id="startScreen" class="screen active">
+  <div class="start-inner">
+    <div class="logo-mark">🎮</div>
+    <h1 class="site-title">GAME HUB</h1>
+    <p class="sub">Enter your name to play</p>
+    <div class="input-row">
+      <input type="text" id="username" placeholder="Your name…" autocomplete="off">
+      <button class="btn-primary" onclick="startGame()">LET'S GO →</button>
     </div>
   </div>
 </div>
 
-<!-- CUP GAME -->
-<div id="gameScreen" class="hidden">
+<!-- GAME LIST / MENU -->
+<div id="menuScreen" class="screen hidden">
+  <header class="menu-header">
+    <span class="site-title small">GAME HUB</span>
+    <span class="welcome-tag" id="welcomeTag"></span>
+  </header>
 
-  <h3>Find the Ball 🟡</h3>
+  <h2 class="section-label">Choose a Game</h2>
 
-  <div class="controls">
-    <label>Cups:</label>
-    <select id="cupCount">
-      <option value="3">3</option>
-      <option value="4">4</option>
-      <option value="5">5</option>
-    </select>
+  <div class="game-grid">
+    <!-- Cup Game Card -->
+    <div class="game-card" onclick="openCupGame()">
+      <div class="card-img-wrap">
+        <img src="cup-game.png" alt="Cup Game" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1046/1046784.png'">
+      </div>
+      <div class="card-info">
+        <span class="card-title">Cup Game</span>
+        <span class="card-desc">Find the hidden ball</span>
+      </div>
+      <span class="card-arrow">→</span>
+    </div>
 
-    <label>Speed:</label>
-    <select id="speed">
-      <option value="1000">Easy</option>
-      <option value="600">Medium</option>
-      <option value="300">Hard</option>
-    </select>
+    <!-- Placeholder card for future games -->
+    <div class="game-card coming-soon">
+      <div class="card-img-wrap placeholder-icon">❓</div>
+      <div class="card-info">
+        <span class="card-title">Coming Soon</span>
+        <span class="card-desc">More games arriving</span>
+      </div>
+    </div>
+  </div>
+</div>
 
-    <button onclick="setupGame()">Start Shuffle</button>
+<!-- CUP GAME SCREEN -->
+<div id="gameScreen" class="screen hidden">
+
+  <div class="game-topbar">
+    <button class="btn-back" onclick="backToMenu()">← Back</button>
+    <h2 class="game-title">Cup Game 🎩</h2>
   </div>
 
-  <div class="cups" id="cupsContainer"></div>
+  <!-- Difficulty + Controls -->
+  <div class="controls-bar">
+    <div class="control-group">
+      <label>Cups</label>
+      <select id="cupCount">
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+      </select>
+    </div>
 
-  <p id="result"></p>
-  <button onclick="backToMenu()">Back</button>
+    <div class="control-group">
+      <label>Difficulty</label>
+      <div class="diff-pills" id="diffPills">
+        <button class="pill active" data-speed="1000" onclick="setDiff(this)">Easy</button>
+        <button class="pill" data-speed="500" onclick="setDiff(this)">Medium</button>
+        <button class="pill" data-speed="200" onclick="setDiff(this)">Hard</button>
+      </div>
+    </div>
+
+    <button class="btn-primary" onclick="setupGame()">▶ Start</button>
+  </div>
+
+  <!-- Cups area -->
+  <div class="game-arena">
+    <div class="cups-row" id="cupsContainer"></div>
+    <p id="result" class="result-msg"></p>
+  </div>
 
 </div>
 
