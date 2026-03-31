@@ -2,29 +2,59 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Cup Guess Game</title>
+  <title>Game Hub</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+<!-- START SCREEN -->
 <div id="startScreen">
   <h2>Enter Your Name</h2>
   <input type="text" id="username" placeholder="Your name">
-  <button onclick="startGame()">Start Game</button>
+  <button onclick="startGame()">Start</button>
 </div>
 
-<div id="gameScreen" class="hidden">
-  <h3 id="question">Watch carefully...</h3>
+<!-- GAME LIST -->
+<div id="menuScreen" class="hidden">
+  <h2>Select Game</h2>
 
-  <div class="cups">
-    <div class="cup" onclick="guess(0)">1</div>
-    <div class="cup" onclick="guess(1)">2</div>
-    <div class="cup" onclick="guess(2)">3</div>
+  <div class="grid">
+    <div class="card" onclick="openCupGame()">
+      <img src="https://cdn-icons-png.flaticon.com/512/1046/1046784.png">
+      <p>Cup Game</p>
+    </div>
+  </div>
+</div>
+
+<!-- CUP GAME -->
+<div id="gameScreen" class="hidden">
+
+  <h3>Find the Ball 🟡</h3>
+
+  <div class="controls">
+    <label>Cups:</label>
+    <select id="cupCount">
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+    </select>
+
+    <label>Speed:</label>
+    <select id="speed">
+      <option value="1000">Easy</option>
+      <option value="600">Medium</option>
+      <option value="300">Hard</option>
+    </select>
+
+    <button onclick="setupGame()">Start Shuffle</button>
   </div>
 
+  <div class="cups" id="cupsContainer"></div>
+
   <p id="result"></p>
-  <button onclick="restart()">Play Again</button>
+  <button onclick="backToMenu()">Back</button>
+
 </div>
 
 <script src="script.js"></script>
