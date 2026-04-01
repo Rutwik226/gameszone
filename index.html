@@ -15,7 +15,7 @@
   <div class="start-inner">
     <div class="logo-mark">🎮</div>
     <h1 class="site-title">GAME HUB</h1>
-    <p class="sub">Enter your game name</p>
+    <p class="sub">Enter your name to play</p>
     <div class="input-row">
       <input type="text" id="username" placeholder="Your name…" autocomplete="off">
       <button class="btn-primary" onclick="startGame()">LET'S GO →</button>
@@ -23,17 +23,14 @@
   </div>
 </div>
 
-<!-- GAME LIST / MENU -->
+<!-- GAME LIST -->
 <div id="menuScreen" class="screen hidden">
   <header class="menu-header">
     <span class="site-title small">GAME HUB</span>
     <span class="welcome-tag" id="welcomeTag"></span>
   </header>
-
   <h2 class="section-label">Choose a Game</h2>
-
   <div class="game-grid">
-    <!-- Cup Game Card -->
     <div class="game-card" onclick="openCupGame()">
       <div class="card-img-wrap">
         <img src="cup-game.png" alt="Cup Game" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1046/1046784.png'">
@@ -44,8 +41,6 @@
       </div>
       <span class="card-arrow">→</span>
     </div>
-
-    <!-- Placeholder card for future games -->
     <div class="game-card coming-soon">
       <div class="card-img-wrap placeholder-icon">❓</div>
       <div class="card-info">
@@ -56,15 +51,13 @@
   </div>
 </div>
 
-<!-- CUP GAME SCREEN -->
+<!-- CUP GAME -->
 <div id="gameScreen" class="screen hidden">
-
   <div class="game-topbar">
     <button class="btn-back" onclick="backToMenu()">← Back</button>
     <h2 class="game-title">Cup Game 🎩</h2>
   </div>
 
-  <!-- Difficulty + Controls -->
   <div class="controls-bar">
     <div class="control-group">
       <label>Cups</label>
@@ -74,25 +67,24 @@
         <option value="5">5</option>
       </select>
     </div>
-
     <div class="control-group">
       <label>Difficulty</label>
       <div class="diff-pills" id="diffPills">
-        <button class="pill active" data-speed="1000" onclick="setDiff(this)">Easy</button>
+        <button class="pill active" data-speed="900" onclick="setDiff(this)">Easy</button>
         <button class="pill" data-speed="500" onclick="setDiff(this)">Medium</button>
-        <button class="pill" data-speed="200" onclick="setDiff(this)">Hard</button>
+        <button class="pill" data-speed="250" onclick="setDiff(this)">Hard</button>
       </div>
     </div>
-
     <button class="btn-primary" onclick="setupGame()">▶ Start</button>
   </div>
 
-  <!-- Cups area -->
+  <p class="phase-label" id="phaseLabel">Press Start to play</p>
+
   <div class="game-arena">
-    <div class="cups-row" id="cupsContainer"></div>
-    <p id="result" class="result-msg"></p>
+    <canvas id="gameCanvas"></canvas>
   </div>
 
+  <p id="result" class="result-msg"></p>
 </div>
 
 <script src="script.js"></script>
