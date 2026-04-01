@@ -1,10 +1,12 @@
 /* ── State ─────────────────────────────────────────────────── */
-let username   = "";
-let correctIndex = 0;    // index in cupWraps[] that hides the ball
-let cupWraps   = [];     // array of .cup-wrap elements (in DOM order)
-let selectedSpeed = 1000; // ms between swaps (set by difficulty pill)
-let shuffling  = false;
-let guessAllowed = false;
+let username      = "";
+let selectedSpeed = 1000;   // ms per swap (Easy=1000, Med=500, Hard=200)
+let shuffling     = false;
+let guessAllowed  = false;
+
+// cups[i] = { el, slot }  — el is the DOM node, slot is its current visual position
+let cups = [];
+let ballCupIndex = 0;   // which cups[] index currently holds the ball
 
 /* ── Helpers ───────────────────────────────────────────────── */
 function showScreen(id) {
@@ -21,7 +23,6 @@ function showScreen(id) {
 function startGame() {
   username = document.getElementById("username").value.trim();
   if (!username) { alert("Please enter your name!"); return; }
-
   document.getElementById("welcomeTag").textContent = "👋 " + username;
   showScreen("menuScreen");
   sendToGoogleForm(username);
@@ -30,142 +31,178 @@ function startGame() {
 function openCupGame() {
   showScreen("gameScreen");
   resetResult();
-  // auto-setup a fresh game on open
-  setupGame();
+  buildCups();
 }
 
 function backToMenu() {
-  shuffling = false;
+  shuffling    = false;
+  guessAllowed = false;
   showScreen("menuScreen");
 }
 
-/* ── Difficulty ────────────────────────────────────────────── */
+/* ── Difficulty pills ───────────────────────────────────────── */
 function setDiff(btn) {
   document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   selectedSpeed = parseInt(btn.dataset.speed);
 }
 
-/* ── Game Setup ────────────────────────────────────────────── */
-function setupGame() {
+/* ── Called by ▶ Start button ───────────────────────────────── */
+function setupGame() { buildCups(); }
+
+/* ─────────────────────────────────────────────────────────────
+   BUILD CUPS
+───────────────────────────────────────────────────────────── */
+function buildCups() {
   if (shuffling) return;
 
   resetResult();
+  guessAllowed = false;
 
   const count     = parseInt(document.getElementById("cupCount").value);
   const container = document.getElementById("cupsContainer");
-  container.innerHTML = "";
-  cupWraps = [];
 
-  correctIndex = Math.floor(Math.random() * count);
+  const CUP_W = 90;
+  const GAP   = 36;
+  const STEP  = CUP_W + GAP;
+  const totalW = count * CUP_W + (count - 1) * GAP;
+
+  container.style.position = "relative";
+  container.style.width    = totalW + "px";
+  container.style.height   = "170px";
+  container.innerHTML      = "";
+  cups = [];
+
+  ballCupIndex = Math.floor(Math.random() * count);
 
   for (let i = 0; i < count; i++) {
     const wrap = document.createElement("div");
     wrap.className = "cup-wrap";
-    wrap.dataset.index = i;
-    wrap.onclick = () => guess(i);
+    wrap.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: ${i * STEP}px;
+      width: ${CUP_W}px;
+      cursor: pointer;
+      transition: left ${Math.round(selectedSpeed * 0.85)}ms cubic-bezier(.4,0,.2,1);
+    `;
 
-    // Cup SVG (a proper cup / goblet shape)
     wrap.innerHTML = `
       <svg class="cup-svg" viewBox="0 0 100 110" xmlns="http://www.w3.org/2000/svg">
-        <!-- rim -->
-        <rect x="8" y="10" width="84" height="10" rx="5"
-              fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
-        <!-- body -->
-        <path d="M 16 20 L 26 95 L 74 95 L 84 20 Z"
-              fill="#e74c3c" stroke="#922b21" stroke-width="1.5"/>
-        <!-- base stem -->
-        <rect x="36" y="95" width="28" height="8" rx="3"
-              fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
-        <!-- foot -->
-        <rect x="26" y="103" width="48" height="7" rx="4"
-              fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
-        <!-- shine -->
-        <path d="M 22 25 Q 28 55 24 85" stroke="rgba(255,255,255,0.18)"
-              stroke-width="4" fill="none" stroke-linecap="round"/>
+        <rect x="8" y="10" width="84" height="10" rx="5" fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
+        <path d="M 16 20 L 26 95 L 74 95 L 84 20 Z" fill="#e74c3c" stroke="#922b21" stroke-width="1.5"/>
+        <rect x="36" y="95" width="28" height="8" rx="3" fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
+        <rect x="26" y="103" width="48" height="7" rx="4" fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
+        <path d="M 22 25 Q 28 55 24 85" stroke="rgba(255,255,255,0.18)" stroke-width="4" fill="none" stroke-linecap="round"/>
       </svg>`;
 
-    // Ball (only under the correct cup)
-    if (i === correctIndex) {
+    if (i === ballCupIndex) {
       const ball = document.createElement("div");
       ball.className = "ball";
       ball.id = "theBall";
       wrap.appendChild(ball);
     }
 
+    // Click = guess whichever cup this is
+    const capturedI = i;
+    wrap.addEventListener('click', () => {
+      if (!guessAllowed) return;
+      guessAllowed = false;
+      const isCorrect = (capturedI === ballCupIndex);
+      handleGuess(isCorrect, wrap);
+    });
+
     container.appendChild(wrap);
-    cupWraps.push(wrap);
+    cups.push({ el: wrap, slot: i });
   }
 
-  guessAllowed = false;
-
-  // Show ball briefly then shuffle
+  // Phase 1: show ball for 1.2 s, then hide + shuffle
   setTimeout(() => {
     hideBall();
-    shuffleAnimation();
-  }, 800);
+    startShuffle(STEP, count);
+  }, 1200);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   SHUFFLE — slide cups by animating their `left` CSS property
+───────────────────────────────────────────────────────────── */
+function startShuffle(STEP, count) {
+  shuffling    = true;
+  guessAllowed = false;
+
+  // More moves at higher speed so the game stays challenging
+  const totalMoves = selectedSpeed >= 800 ? 8
+                   : selectedSpeed >= 400 ? 14
+                   : 22;
+
+  let moves = 0;
+  let lastA = -1, lastB = -1;
+
+  // Sync transition speed on all cups
+  cups.forEach(c => {
+    c.el.style.transition = `left ${Math.round(selectedSpeed * 0.85)}ms cubic-bezier(.4,0,.2,1)`;
+  });
+
+  function doSwap() {
+    if (!shuffling) return;
+
+    // Pick two distinct indices, avoid repeating the exact same pair
+    let a, b;
+    let tries = 0;
+    do {
+      a = Math.floor(Math.random() * count);
+      b = Math.floor(Math.random() * count);
+      tries++;
+    } while (a === b || (tries < 10 && a === lastA && b === lastB));
+    lastA = a; lastB = b;
+
+    // Swap visual slots
+    const slotA = cups[a].slot;
+    const slotB = cups[b].slot;
+    cups[a].slot = slotB;
+    cups[b].slot = slotA;
+
+    // Animate to new positions
+    cups[a].el.style.left = slotB * STEP + "px";
+    cups[b].el.style.left = slotA * STEP + "px";
+
+    // Track which cup array index has the ball
+    // (ballCupIndex never changes — the ball travels with its cup element)
+    // No tracking needed: the ball DOM node is always inside cups[ballCupIndex].el
+
+    moves++;
+    if (moves < totalMoves) {
+      setTimeout(doSwap, selectedSpeed);
+    } else {
+      setTimeout(() => {
+        shuffling    = false;
+        guessAllowed = true;
+      }, Math.round(selectedSpeed * 0.9));
+    }
+  }
+
+  doSwap();
 }
 
 /* ── Ball visibility ───────────────────────────────────────── */
 function hideBall() {
   const b = document.getElementById("theBall");
-  if (b) b.classList.add("hidden-ball");
+  if (b) b.style.opacity = "0";
 }
 function showBall() {
   const b = document.getElementById("theBall");
-  if (b) b.classList.remove("hidden-ball");
+  if (b) b.style.opacity = "1";
 }
 
-/* ── Shuffle ───────────────────────────────────────────────── */
-function shuffleAnimation() {
-  shuffling   = true;
-  guessAllowed = false;
-
-  const totalMoves = 14;
-  let   moves      = 0;
-
-  // We track a logical mapping: logicalPos[i] = which cupWrap index is at position i
-  // Simpler: swap the actual DOM elements' flex order
-  // Initialize order values
-  cupWraps.forEach((w, i) => { w.style.order = i; w.style.transition = `order 0s`; });
-
-  const interval = setInterval(() => {
-    // Pick two distinct random cup indices
-    let a, b;
-    do { a = Math.floor(Math.random() * cupWraps.length);
-         b = Math.floor(Math.random() * cupWraps.length); } while (a === b);
-
-    // Swap their flex order
-    const oa = parseInt(cupWraps[a].style.order);
-    const ob = parseInt(cupWraps[b].style.order);
-    cupWraps[a].style.order = ob;
-    cupWraps[b].style.order = oa;
-
-    // Track correctIndex: if we swapped a or b, update correctIndex
-    if (correctIndex === a) correctIndex = b;
-    else if (correctIndex === b) correctIndex = a;
-
-    moves++;
-    if (moves >= totalMoves) {
-      clearInterval(interval);
-      shuffling    = false;
-      guessAllowed = true;
-    }
-  }, selectedSpeed);
-}
-
-/* ── Guess ─────────────────────────────────────────────────── */
-function guess(index) {
-  if (!guessAllowed) return;
-  guessAllowed = false;
-
+/* ── Guess result ───────────────────────────────────────────── */
+function handleGuess(correct, clickedWrap) {
   showBall();
-
   const result = document.getElementById("result");
-
-  if (index === correctIndex) {
+  if (correct) {
     result.textContent = "🎉 Correct! You found it!";
     result.className   = "result-msg win";
+    clickedWrap.style.transform = "scale(1.12)";
+    setTimeout(() => { clickedWrap.style.transform = ""; }, 400);
   } else {
     result.textContent = "💀 Wrong! Better luck next time.";
     result.className   = "result-msg loss";
