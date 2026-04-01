@@ -1,225 +1,426 @@
-/* ── State ─────────────────────────────────────────────────── */
-let username      = "";
-let selectedSpeed = 1000;   // ms per swap (Easy=1000, Med=500, Hard=200)
-let shuffling     = false;
-let guessAllowed  = false;
+/* ═══════════════════════════════════════════════════════════════
+   GAME HUB  –  Shell / Cup Game
+   Cups rendered on <canvas>. Swaps use a bezier arc so one cup
+   visibly swoops OVER the other, exactly like the classic game.
+═══════════════════════════════════════════════════════════════ */
 
-// cups[i] = { el, slot }  — el is the DOM node, slot is its current visual position
-let cups = [];
-let ballCupIndex = 0;   // which cups[] index currently holds the ball
+/* ── Global UI state ──────────────────────────────────────────── */
+let username     = "";
+let swapDuration = 900;   // ms per swap (set by difficulty)
 
-/* ── Helpers ───────────────────────────────────────────────── */
+/* ── Screen helpers ───────────────────────────────────────────── */
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => {
-    s.classList.add('hidden');
-    s.classList.remove('active');
+    s.classList.add('hidden'); s.classList.remove('active');
   });
   const el = document.getElementById(id);
-  el.classList.remove('hidden');
-  el.classList.add('active');
+  el.classList.remove('hidden'); el.classList.add('active');
+}
+function setPhase(txt) { document.getElementById('phaseLabel').textContent = txt; }
+function setResult(txt, cls) {
+  const r = document.getElementById('result');
+  r.textContent = txt; r.className = 'result-msg' + (cls ? ' ' + cls : '');
 }
 
-/* ── Start / Menu ──────────────────────────────────────────── */
+/* ── Start / menu ─────────────────────────────────────────────── */
 function startGame() {
-  username = document.getElementById("username").value.trim();
-  if (!username) { alert("Please enter your name!"); return; }
-  document.getElementById("welcomeTag").textContent = "👋 " + username;
-  showScreen("menuScreen");
+  username = document.getElementById('username').value.trim();
+  if (!username) { alert('Please enter your name!'); return; }
+  document.getElementById('welcomeTag').textContent = '👋 ' + username;
+  showScreen('menuScreen');
   sendToGoogleForm(username);
 }
-
-function openCupGame() {
-  showScreen("gameScreen");
-  resetResult();
-  buildCups();
-}
-
-function backToMenu() {
-  shuffling    = false;
-  guessAllowed = false;
-  showScreen("menuScreen");
-}
-
-/* ── Difficulty pills ───────────────────────────────────────── */
+function openCupGame() { showScreen('gameScreen'); initGame(); }
+function backToMenu()  { stopGame(); showScreen('menuScreen'); }
 function setDiff(btn) {
   document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
-  selectedSpeed = parseInt(btn.dataset.speed);
+  swapDuration = parseInt(btn.dataset.speed);
 }
+function setupGame() { initGame(); }
 
-/* ── Called by ▶ Start button ───────────────────────────────── */
-function setupGame() { buildCups(); }
+/* ════════════════════════════════════════════════════════════════
+   CANVAS ENGINE
+════════════════════════════════════════════════════════════════ */
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
 
-/* ─────────────────────────────────────────────────────────────
-   BUILD CUPS
-───────────────────────────────────────────────────────────── */
-function buildCups() {
-  if (shuffling) return;
+/* layout constants (recalculated in initGame) */
+let CW, CH, CUP_W, CUP_H, GAP, FLOOR_Y, N;
+const BALL_R = 14;
 
-  resetResult();
-  guessAllowed = false;
+/* cup objects: { x, y, hasBall } */
+let cups          = [];
+let ballCupIdx    = 0;
+let showBall      = false;   // whether ball is visible
+let gamePhase     = 'idle';  // idle | reveal | shuffle | guess | done
+let animating     = false;
 
-  const count     = parseInt(document.getElementById("cupCount").value);
-  const container = document.getElementById("cupsContainer");
+/* animation queue */
+let swapQueue     = [];
+let currentSwap   = null;
+let swapStartTime = null;
 
-  const CUP_W = 90;
-  const GAP   = 36;
-  const STEP  = CUP_W + GAP;
-  const totalW = count * CUP_W + (count - 1) * GAP;
+/* hover / click */
+let hoverCup = -1;
 
-  container.style.position = "relative";
-  container.style.width    = totalW + "px";
-  container.style.height   = "170px";
-  container.innerHTML      = "";
+let rafId = null;
+
+/* ── Init ─────────────────────────────────────────────────────── */
+function initGame() {
+  stopGame();
+  setResult('', '');
+
+  N = parseInt(document.getElementById('cupCount').value);
+
+  /* size canvas to fit */
+  const maxW   = Math.min(window.innerWidth - 48, 640);
+  CUP_W  = Math.min(100, Math.floor((maxW - 40) / N - 20));
+  CUP_H  = Math.round(CUP_W * 1.15);
+  GAP    = Math.round(CUP_W * 0.45);
+  CW     = N * CUP_W + (N - 1) * GAP + 40;
+  CH     = CUP_H + BALL_R * 2 + 60;
+  FLOOR_Y = CUP_H + 20;
+
+  canvas.width  = CW;
+  canvas.height = CH;
+
+  /* build cups centred */
+  const startX = (CW - (N * CUP_W + (N - 1) * GAP)) / 2;
   cups = [];
-
-  ballCupIndex = Math.floor(Math.random() * count);
-
-  for (let i = 0; i < count; i++) {
-    const wrap = document.createElement("div");
-    wrap.className = "cup-wrap";
-    wrap.style.cssText = `
-      position: absolute;
-      top: 0;
-      left: ${i * STEP}px;
-      width: ${CUP_W}px;
-      cursor: pointer;
-      transition: left ${Math.round(selectedSpeed * 0.85)}ms cubic-bezier(.4,0,.2,1);
-    `;
-
-    wrap.innerHTML = `
-      <svg class="cup-svg" viewBox="0 0 100 110" xmlns="http://www.w3.org/2000/svg">
-        <rect x="8" y="10" width="84" height="10" rx="5" fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
-        <path d="M 16 20 L 26 95 L 74 95 L 84 20 Z" fill="#e74c3c" stroke="#922b21" stroke-width="1.5"/>
-        <rect x="36" y="95" width="28" height="8" rx="3" fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
-        <rect x="26" y="103" width="48" height="7" rx="4" fill="#c0392b" stroke="#922b21" stroke-width="1.5"/>
-        <path d="M 22 25 Q 28 55 24 85" stroke="rgba(255,255,255,0.18)" stroke-width="4" fill="none" stroke-linecap="round"/>
-      </svg>`;
-
-    if (i === ballCupIndex) {
-      const ball = document.createElement("div");
-      ball.className = "ball";
-      ball.id = "theBall";
-      wrap.appendChild(ball);
-    }
-
-    // Click = guess whichever cup this is
-    const capturedI = i;
-    wrap.addEventListener('click', () => {
-      if (!guessAllowed) return;
-      guessAllowed = false;
-      const isCorrect = (capturedI === ballCupIndex);
-      handleGuess(isCorrect, wrap);
-    });
-
-    container.appendChild(wrap);
-    cups.push({ el: wrap, slot: i });
+  for (let i = 0; i < N; i++) {
+    cups.push({ x: startX + i * (CUP_W + GAP), y: 0, hasBall: false });
   }
+  ballCupIdx = Math.floor(Math.random() * N);
+  cups[ballCupIdx].hasBall = true;
 
-  // Phase 1: show ball for 1.2 s, then hide + shuffle
+  /* reveal phase: show ball for 1.4 s */
+  gamePhase = 'reveal';
+  showBall  = true;
+  setPhase('Remember where the ball is!');
+
+  rafId = requestAnimationFrame(loop);
+
   setTimeout(() => {
-    hideBall();
-    startShuffle(STEP, count);
-  }, 1200);
+    showBall  = false;
+    gamePhase = 'shuffle';
+    setPhase('Shuffling…');
+    buildSwapQueue();
+    runNextSwap();
+  }, 1400);
 }
 
-/* ─────────────────────────────────────────────────────────────
-   SHUFFLE — slide cups by animating their `left` CSS property
-───────────────────────────────────────────────────────────── */
-function startShuffle(STEP, count) {
-  shuffling    = true;
-  guessAllowed = false;
+function stopGame() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  animating    = false;
+  currentSwap  = null;
+  swapQueue    = [];
+  gamePhase    = 'idle';
+}
 
-  // More moves at higher speed so the game stays challenging
-  const totalMoves = selectedSpeed >= 800 ? 8
-                   : selectedSpeed >= 400 ? 14
-                   : 22;
-
-  let moves = 0;
+/* ── Swap queue builder ───────────────────────────────────────── */
+function buildSwapQueue() {
+  const moves = swapDuration >= 800 ? 8 : swapDuration >= 400 ? 14 : 22;
+  swapQueue = [];
   let lastA = -1, lastB = -1;
-
-  // Sync transition speed on all cups
-  cups.forEach(c => {
-    c.el.style.transition = `left ${Math.round(selectedSpeed * 0.85)}ms cubic-bezier(.4,0,.2,1)`;
-  });
-
-  function doSwap() {
-    if (!shuffling) return;
-
-    // Pick two distinct indices, avoid repeating the exact same pair
-    let a, b;
-    let tries = 0;
+  for (let m = 0; m < moves; m++) {
+    let a, b, tries = 0;
     do {
-      a = Math.floor(Math.random() * count);
-      b = Math.floor(Math.random() * count);
+      a = Math.floor(Math.random() * N);
+      b = Math.floor(Math.random() * N);
       tries++;
-    } while (a === b || (tries < 10 && a === lastA && b === lastB));
+    } while (a === b || (tries < 8 && a === lastA && b === lastB));
+    swapQueue.push([a, b]);
     lastA = a; lastB = b;
+  }
+}
 
-    // Swap visual slots
-    const slotA = cups[a].slot;
-    const slotB = cups[b].slot;
-    cups[a].slot = slotB;
-    cups[b].slot = slotA;
+function runNextSwap() {
+  if (swapQueue.length === 0) {
+    gamePhase = 'guess';
+    setPhase('Which cup hides the ball?');
+    return;
+  }
+  const [a, b] = swapQueue.shift();
+  startSwapAnim(a, b, () => {
+    setTimeout(runNextSwap, swapDuration * 0.08);
+  });
+}
 
-    // Animate to new positions
-    cups[a].el.style.left = slotB * STEP + "px";
-    cups[b].el.style.left = slotA * STEP + "px";
+/* ── Arc swap animation ───────────────────────────────────────── */
+/*
+  Cup A arcs OVER by going up (negative y) while sliding sideways.
+  Cup B slides under by going slightly down then back.
+  We use a parametric t in [0,1].
+*/
+function startSwapAnim(idxA, idxB, onDone) {
+  const cupA = cups[idxA];
+  const cupB = cups[idxB];
 
-    // Track which cup array index has the ball
-    // (ballCupIndex never changes — the ball travels with its cup element)
-    // No tracking needed: the ball DOM node is always inside cups[ballCupIndex].el
+  const ax0 = cupA.x, ay0 = cupA.y;
+  const bx0 = cupB.x, by0 = cupB.y;
+  const ax1 = bx0,    ay1 = by0;   // A's destination
+  const bx1 = ax0,    by1 = ay0;   // B's destination
 
-    moves++;
-    if (moves < totalMoves) {
-      setTimeout(doSwap, selectedSpeed);
-    } else {
-      setTimeout(() => {
-        shuffling    = false;
-        guessAllowed = true;
-      }, Math.round(selectedSpeed * 0.9));
+  const arcHeight = CUP_H * 1.1;   // how high the upper cup lifts
+
+  animating    = true;
+  currentSwap  = {
+    idxA, idxB,
+    ax0, ay0, ax1, ay1,
+    bx0, by0, bx1, by1,
+    arcHeight,
+    duration: swapDuration,
+    onDone
+  };
+  swapStartTime = performance.now();
+}
+
+function tickSwap(now) {
+  if (!currentSwap) return;
+  const s = currentSwap;
+  let t = (now - swapStartTime) / s.duration;
+  if (t >= 1) { t = 1; }
+
+  const ease = t < 0.5
+    ? 4 * t * t * t
+    : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+  /* Cup A arcs over (upward arc) */
+  cups[s.idxA].x = lerp(s.ax0, s.ax1, ease);
+  cups[s.idxA].y = lerp(s.ay0, s.ay1, ease) - Math.sin(Math.PI * t) * s.arcHeight;
+
+  /* Cup B slides under (slight dip) */
+  cups[s.idxB].x = lerp(s.bx0, s.bx1, ease);
+  cups[s.idxB].y = lerp(s.by0, s.by1, ease) + Math.sin(Math.PI * t) * (s.arcHeight * 0.12);
+
+  if (t >= 1) {
+    /* snap to exact final positions */
+    cups[s.idxA].x = s.ax1; cups[s.idxA].y = s.ay1;
+    cups[s.idxB].x = s.bx1; cups[s.idxB].y = s.by1;
+
+    /* swap hasBall */
+    const hA = cups[s.idxA].hasBall;
+    cups[s.idxA].hasBall = cups[s.idxB].hasBall;
+    cups[s.idxB].hasBall = hA;
+
+    /* update ballCupIdx */
+    if (ballCupIdx === s.idxA) ballCupIdx = s.idxB;
+    else if (ballCupIdx === s.idxB) ballCupIdx = s.idxA;
+
+    animating   = false;
+    currentSwap = null;
+    s.onDone && s.onDone();
+  }
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+/* ── Click handling ───────────────────────────────────────────── */
+canvas.addEventListener('click', e => {
+  if (gamePhase !== 'guess') return;
+  const rect = canvas.getBoundingClientRect();
+  const mx   = e.clientX - rect.left;
+  const my   = e.clientY - rect.top;
+  const hit  = hitTest(mx, my);
+  if (hit < 0) return;
+
+  gamePhase = 'done';
+  showBall  = true;
+  setPhase('');
+
+  if (hit === ballCupIdx) {
+    setResult('🎉 Correct! You found it!', 'win');
+  } else {
+    setResult('💀 Wrong! Better luck next time.', 'loss');
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (gamePhase !== 'guess') { hoverCup = -1; return; }
+  const rect = canvas.getBoundingClientRect();
+  hoverCup = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+  canvas.style.cursor = hoverCup >= 0 ? 'pointer' : 'default';
+});
+canvas.addEventListener('mouseleave', () => { hoverCup = -1; });
+
+function hitTest(mx, my) {
+  for (let i = 0; i < cups.length; i++) {
+    const c = cups[i];
+    if (mx >= c.x && mx <= c.x + CUP_W && my >= c.y && my <= c.y + CUP_H) return i;
+  }
+  return -1;
+}
+
+/* ── Draw loop ────────────────────────────────────────────────── */
+function loop(now) {
+  rafId = requestAnimationFrame(loop);
+  if (animating && currentSwap) tickSwap(now);
+  draw();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, CW, CH);
+
+  /* floor line */
+  ctx.strokeStyle = '#2a2a2a';
+  ctx.lineWidth   = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, FLOOR_Y + CUP_H);
+  ctx.lineTo(CW, FLOOR_Y + CUP_H);
+  ctx.stroke();
+
+  /* sort cups so arcing cup (highest, most negative y) draws on top */
+  const order = [...cups.keys()].sort((a, b) => cups[b].y - cups[a].y);
+
+  /* draw balls first (behind cups) */
+  for (let i = 0; i < cups.length; i++) {
+    if (showBall && cups[i].hasBall) {
+      drawBall(cups[i]);
     }
   }
 
-  doSwap();
-}
-
-/* ── Ball visibility ───────────────────────────────────────── */
-function hideBall() {
-  const b = document.getElementById("theBall");
-  if (b) b.style.opacity = "0";
-}
-function showBall() {
-  const b = document.getElementById("theBall");
-  if (b) b.style.opacity = "1";
-}
-
-/* ── Guess result ───────────────────────────────────────────── */
-function handleGuess(correct, clickedWrap) {
-  showBall();
-  const result = document.getElementById("result");
-  if (correct) {
-    result.textContent = "🎉 Correct! You found it!";
-    result.className   = "result-msg win";
-    clickedWrap.style.transform = "scale(1.12)";
-    setTimeout(() => { clickedWrap.style.transform = ""; }, 400);
-  } else {
-    result.textContent = "💀 Wrong! Better luck next time.";
-    result.className   = "result-msg loss";
+  /* draw cups */
+  for (const i of order) {
+    drawCup(cups[i], i === hoverCup);
   }
 }
 
-function resetResult() {
-  const r = document.getElementById("result");
-  if (r) { r.textContent = ""; r.className = "result-msg"; }
+/* ── Cup renderer ─────────────────────────────────────────────── */
+function drawCup(cup, hover) {
+  const x = cup.x, y = cup.y;
+  const w = CUP_W, h = CUP_H;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  /* shadow */
+  ctx.shadowColor   = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur    = 18;
+  ctx.shadowOffsetY = 8;
+
+  /* body trapezoid — wide at top, narrow at bottom */
+  const topW  = w;
+  const botW  = w * 0.62;
+  const rimH  = h * 0.10;
+  const bodyH = h * 0.72;
+  const stemH = h * 0.10;
+  const baseH = h * 0.08;
+
+  const topL  = 0;
+  const topR  = topW;
+  const botL  = (topW - botW) / 2;
+  const botR  = botL + botW;
+
+  /* main body gradient */
+  const grad = ctx.createLinearGradient(0, 0, topW, 0);
+  grad.addColorStop(0,    hover ? '#ff6b5b' : '#c0392b');
+  grad.addColorStop(0.35, hover ? '#ff8a7a' : '#e74c3c');
+  grad.addColorStop(0.65, hover ? '#ff6b5b' : '#c0392b');
+  grad.addColorStop(1,    hover ? '#cc3020' : '#962d22');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(topL, rimH);
+  ctx.lineTo(topR, rimH);
+  ctx.lineTo(botR, rimH + bodyH);
+  ctx.lineTo(botL, rimH + bodyH);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+
+  /* rim */
+  const rimGrad = ctx.createLinearGradient(0, 0, topW, 0);
+  rimGrad.addColorStop(0,   '#8b1c10');
+  rimGrad.addColorStop(0.5, '#d63031');
+  rimGrad.addColorStop(1,   '#8b1c10');
+  ctx.fillStyle = rimGrad;
+  ctx.beginPath();
+  ctx.roundRect(topL - 2, 0, topW + 4, rimH + 3, [5, 5, 2, 2]);
+  ctx.fill();
+
+  /* stem */
+  const stemL = botL + (botW - botW * 0.45) / 2;
+  const stemW = botW * 0.45;
+  ctx.fillStyle = '#a93226';
+  ctx.fillRect(stemL, rimH + bodyH, stemW, stemH);
+
+  /* base */
+  const baseW = botW * 1.1;
+  const baseL = (topW - baseW) / 2;
+  ctx.fillStyle = '#922b21';
+  ctx.beginPath();
+  ctx.roundRect(baseL, rimH + bodyH + stemH, baseW, baseH, 4);
+  ctx.fill();
+
+  /* shine highlight */
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(topL + topW * 0.15, rimH + 4);
+  ctx.lineTo(topL + topW * 0.28, rimH + 4);
+  ctx.lineTo(botL + botW * 0.22, rimH + bodyH - 8);
+  ctx.lineTo(botL + botW * 0.10, rimH + bodyH - 8);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255,255,255,0.14)';
+  ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
 }
 
-/* ── Google Form ───────────────────────────────────────────── */
+/* ── Ball renderer ────────────────────────────────────────────── */
+function drawBall(cup) {
+  const cx = cup.x + CUP_W / 2;
+  const cy = cup.y + CUP_H + BALL_R * 0.4;
+
+  /* glow */
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, BALL_R * 2);
+  glow.addColorStop(0,   'rgba(245,197,24,0.45)');
+  glow.addColorStop(1,   'rgba(245,197,24,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, BALL_R * 2, 0, Math.PI * 2);
+  ctx.fillStyle = glow;
+  ctx.fill();
+
+  /* ball */
+  const ballGrad = ctx.createRadialGradient(cx - BALL_R * 0.3, cy - BALL_R * 0.3, 1, cx, cy, BALL_R);
+  ballGrad.addColorStop(0,   '#fff176');
+  ballGrad.addColorStop(0.4, '#f5c518');
+  ballGrad.addColorStop(1,   '#b8860b');
+  ctx.beginPath();
+  ctx.arc(cx, cy, BALL_R, 0, Math.PI * 2);
+  ctx.fillStyle = ballGrad;
+  ctx.fill();
+}
+
+/* ── Touch support ────────────────────────────────────────────── */
+canvas.addEventListener('touchstart', e => {
+  if (gamePhase !== 'guess') return;
+  e.preventDefault();
+  const rect  = canvas.getBoundingClientRect();
+  const touch = e.changedTouches[0];
+  const mx    = (touch.clientX - rect.left) * (canvas.width / rect.width);
+  const my    = (touch.clientY - rect.top)  * (canvas.height / rect.height);
+  const hit   = hitTest(mx, my);
+  if (hit < 0) return;
+
+  gamePhase = 'done';
+  showBall  = true;
+  setPhase('');
+
+  if (hit === ballCupIdx) {
+    setResult('🎉 Correct! You found it!', 'win');
+  } else {
+    setResult('💀 Wrong! Better luck next time.', 'loss');
+  }
+}, { passive: false });
+
+/* ── Google Form ──────────────────────────────────────────────── */
 function sendToGoogleForm(name) {
-  fetch("https://docs.google.com/forms/d/e/1FAIpQLSeDmuyrMLvlbYN_hFrcTvwISmRWOsi9oH0PdIiRq-H6YGKh7A/formResponse", {
-    method: "POST",
-    mode:   "no-cors",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body:    `entry.1512615533=${encodeURIComponent(name)}`
+  fetch('https://docs.google.com/forms/d/e/1FAIpQLSeDmuyrMLvlbYN_hFrcTvwISmRWOsi9oH0PdIiRq-H6YGKh7A/formResponse', {
+    method: 'POST', mode: 'no-cors',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `entry.1512615533=${encodeURIComponent(name)}`
   });
 }
